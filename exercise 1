@@ -1,0 +1,124 @@
+1. References
+
+Instructions to convert HAL into chains were obtained from here 
+https://github.com/ComparativeGenomicsToolkit/hal/blob/chaining-doc/doc/chaining-mapping.md
+In that page these are relevant instructions:
+
+"This document describes how to produce UCSC browser-style pairwise chains from HAL alignments. 
+It also describes how to use these chains to project alignments or annotations between genomes. 
+Chaining outside of HAL is necessary, as the pairwise alignments extract from HAL are fragmented and lack long-range continuity.
+The goal is to generate UCSC alignment chains to use in projecting alignments or annotations on a source genome to a destination genome. 
+With a genomic alignment of genome A to genome B, one can project and annotation or alignment of on genome A of XA. to genome B, producing XB".
+
+"UCSC pairwise alignment formats (PSL and chain) alignments have the two sides of the alignment are the query and target. 
+Which of these is consider the source and destination alignment differs depending on the tool that is used. 
+The UCSC liftOver program considered the target to be the source, so the these instructions create alignments where the target is the source genome.
+
+"Creating chains uses the halLiftover program to produce pairwise alignments for each chromosome in PSL format. 
+These alignments are then chained using the UCSC browser chaining protocol.
+The names of the source and destination genomes are required, as specified in the HAL. The list of genome names in a HAL command."
+
+So I am going to use one result from cactus to obtain my chains
+
+
+2. Set directories
+
+cd /lustre/scratch/mhoyosro/deschrambler_transfromations/exe_1
+
+# Hal path
+export PATH=/lustre/work/mhoyosro/software/hal/DIR/hdf5/bin:${PATH}
+export h5prefix=-prefix=/lustre/work/mhoyosro/software/hal/DIR/hdf5
+export PATH=/lustre/work/mhoyosro/software/hal/bin:${PATH}
+# DoBlastzChain path
+export PATH=/lustre/work/mhoyosro/software/DoBlastzChainNet/data/bin:${PATH}
+export PATH=/lustre/work/mhoyosro/software/DoBlastzChainNet/data/scripts:${PATH}
+
+
+3. Define the working genomes and transform them into 2bit format
+
+# print the list of genomes inside the alignment 
+halStats --genomes fivegenomes.hal
+
+# Convert to fasta the genomes of interest and then transform to 2bit
+hal2fasta fivegenomes.hal pKuh.softmasked.fa | faToTwoBit stdin pKuh.softmasked.2bit
+hal2fasta fivegenomes.hal rFer.softmasked.fa | faToTwoBit stdin rFer.softmasked.2bit
+hal2fasta fivegenomes.hal tBra.softmasked.fa | faToTwoBit stdin tBra.softmasked.2bit
+hal2fasta fivegenomes.hal rMic.softmasked.fa | faToTwoBit stdin rMic.softmasked.2bit
+hal2fasta fivegenomes.hal aJam.softmasked.fa | faToTwoBit stdin aJam.softmasked.2bit
+
+
+4. Transform the genomes into bed format
+# --bedSequences Prints sequences of each genome in bed format 
+
+halStats --bedSequences pKuh.softmasked.fa fivegenomes.hal > pKuh.bed
+halStats --bedSequences rFer.softmasked.fa fivegenomes.hal > rFer.bed
+halStats --bedSequences tBra.softmasked.fa fivegenomes.hal > tBra.bed
+halStats --bedSequences rMic.softmasked.fa fivegenomes.hal > rMic.bed
+halStats --bedSequences aJam.softmasked.fa fivegenomes.hal > aJam.bed
+
+
+5. Define the source genome and align against it producing a PSL file:
+Arbitrarily my target will be pKuh.softmasked.fa
+
+Note that the BED is will be used by halLiftover to create pairwise alignments (PSLs)
+REGULAR USAGE for halLiftover is:
+halLiftover [Options] <halFile> <srcGenome> <srcBed> <tgtGenome> <tgtBed>
+# --outPSL writes the output in PSL instead of bed format <tgtBed>
+
+So what I believe I am doing now is ordering the HAL file fivegenomes.hal according to every genome aligned to pKuh.softmasked.fa
+I should do these four operations:
+
+halLiftover --outPSL fivegenomes.hal tBra.softmasked.fa tBra.bed pKuh.softmasked.fa tBra.psl
+halLiftover --outPSL fivegenomes.hal rMic.softmasked.fa rMic.bed pKuh.softmasked.fa rMic.psl
+halLiftover --outPSL fivegenomes.hal aJam.softmasked.fa aJam.bed pKuh.softmasked.fa aJam.psl
+halLiftover --outPSL fivegenomes.hal rFer.softmasked.fa rFer.bed pKuh.softmasked.fa rFer.psl
+
+But, those operations demand a lot of computing resources so, do a submission script
+
+
+6.  All pairwise alignments now must be forced to the positive strand with pslPosTarget
+
+pslPosTarget rFer.psl pKuh-to-rFer.psl
+pslPosTarget tBra.psl pKuh-to-tBra.psl
+pslPosTarget rMic.psl pKuh-to-rMic.psl
+pslPosTarget aJam.psl pKuh-to-aJam.psl
+
+
+7. These alignments are then chained using the UCSC Browser axtChain program:
+
+axtChain -psl -linearGap=loose pKuh-to-tBra.psl pKuh.softmasked.2bit tBra.softmasked.2bit pKuh_to_tBra.chain
+axtChain -psl -linearGap=loose pKuh-to-rMic.psl pKuh.softmasked.2bit rMic.softmasked.2bit pKuh_to_rMic.chain
+axtChain -psl -linearGap=loose pKuh-to-aJam.psl pKuh.softmasked.2bit aJam.softmasked.2bit pKuh_to_aJam.chain
+axtChain -psl -linearGap=loose pKuh-to-rFer.psl pKuh.softmasked.2bit rFer.softmasked.2bit pKuh_to_rFer.chain
+
+
+8. Get the size of the genomes involved
+
+faSize pKuh.softmasked.fa -detailed > pKuh.sizes
+faSize rFer.softmasked.fa -detailed > rFer.sizes
+faSize tBra.softmasked.fa -detailed > tBra.sizes
+faSize rMic.softmasked.fa -detailed > rMic.sizes
+faSize aJam.softmasked.fa -detailed > aJam.sizes
+
+
+9. Remove chains that don't have a chance of being netted (This could be unnecessary)
+
+chainPreNet pKuh_to_tBra.chain pKuh.sizes tBra.sizes tBra.pre.chain 
+chainPreNet pKuh_to_rMic.chain pKuh.sizes rMic.sizes rMic.pre.chain 
+chainPreNet pKuh_to_aJam.chain pKuh.sizes aJam.sizes aJam.pre.chain 
+chainPreNet pKuh_to_rFer.chain pKuh.sizes rFer.sizes rFer.pre.chain 
+
+
+10. Create the chains using chainNet
+#I can obtain these nets . . .
+
+chainNet rFer.pre.chain -minSpace=1 pKuh.sizes rFer.sizes stdout /dev/null | netSyntenic stdin pKuh_to_rFer.net
+chainNet tBra.pre.chain -minSpace=1 pKuh.sizes tBra.sizes stdout /dev/null | netSyntenic stdin pKuh_to_tBra.net
+chainNet rMic.pre.chain -minSpace=1 pKuh.sizes rMic.sizes stdout /dev/null | netSyntenic stdin pKuh_to_rMic.net
+chainNet aJam.pre.chain -minSpace=1 pKuh.sizes aJam.sizes stdout /dev/null | netSyntenic stdin pKuh_to_aJam.net
+
+#But also I can obtain thessee other nets . . .
+chainNet rFer.pre.chain -minSpace=1 pKuh.sizes rFer.sizes pKuh0.net rFer.net
+chainNet tBra.pre.chain -minSpace=1 pKuh.sizes tBra.sizes pKuh1.net tBra.net
+chainNet rMic.pre.chain -minSpace=1 pKuh.sizes rMic.sizes pKuh2.net rMic.net
+chainNet aJam.pre.chain -minSpace=1 pKuh.sizes aJam.sizes pKuh3.net aJam.net
